@@ -113,6 +113,7 @@
   [{:keys [draft zoom on-cancel on-submit] :as props}]
   (let [position (:position draft)
         content  (:content draft)
+
         pos-x    (* (:x position) zoom)
         pos-y    (* (:y position) zoom)
 

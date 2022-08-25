@@ -64,10 +64,14 @@
    :app.migrations/all
    {:main (ig/ref :app.migrations/migrations)}
 
+   :app.redis/redis
+   {:uri (cf/get :redis-uri)
+    :connect? true}
+
    :app.msgbus/msgbus
    {:backend   (cf/get :msgbus-backend :redis)
     :executor  (ig/ref [::default :app.worker/executor])
-    :redis-uri (cf/get :redis-uri)}
+    :redis     (ig/ref :app.redis/redis)}
 
    :app.storage.tmp/cleaner
    {:executor (ig/ref [::worker :app.worker/executor])

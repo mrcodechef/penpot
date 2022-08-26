@@ -48,18 +48,13 @@
           :timeout (dt/duration {:seconds 30})}
          (d/without-nils cfg)))
 
-(s/def ::timeout ::dt/duration)
 (s/def ::buffer-size ::us/integer)
-(s/def ::redis2
-  (s/keys :req [::redis/resources]))
 
 (defmethod ig/pre-init-spec ::msgbus [_]
-  (s/keys :req-un [::buffer-size ::redis ::timeout ::wrk/executor]))
+  (s/keys :req-un [::buffer-size ::redis/timeout ::redis/redis ::wrk/executor]))
 
 (defmethod ig/init-key ::msgbus
-  [_ {:keys [buffer-size] :as cfg}]
-
-  (app.common.pprint/pprint cfg)
+  [_ {:keys [buffer-size redis] :as cfg}]
 
   (l/info :hint "initialize msgbus"
           :buffer-size buffer-size)
@@ -103,9 +98,9 @@
         (assoc ::sconn sconn))))
 
 (defn- redis-disconnect
-  [{:keys [::pconn ::sconn ::resources] :as cfg}]
-  (.. ^java.lang.AutoCloseable pconn close)
-  (.. ^java.lang.AutoCloseable sconn close))
+  [{:keys [::pconn ::sconn] :as cfg}]
+  (redis/close! pconn)
+  (redis/close! sconn))
 
 (defn- conj-subscription
   "A low level function that is responsible to create on-demand

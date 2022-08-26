@@ -21,6 +21,7 @@
    [integrant.core :as ig]
    [promesa.core :as p])
   (:import
+   clojure.lang.IDeref
    io.lettuce.core.RedisClient
    io.lettuce.core.RedisURI
    io.lettuce.core.api.StatefulConnection
@@ -34,6 +35,9 @@
    io.lettuce.core.pubsub.api.sync.RedisPubSubCommands
    io.lettuce.core.resource.ClientResources
    io.lettuce.core.resource.DefaultClientResources
+   io.netty.util.HashedWheelTimer
+   io.netty.util.Timer
+   java.lang.AutoCloseable
    java.time.Duration))
 
 (set! *warn-on-reflection* true)
@@ -41,11 +45,21 @@
 (declare initialize-resources)
 (declare connect)
 
+(s/def ::timer
+  #(instance? Timer %))
+
 (s/def ::connection
-  #(instance? StatefulRedisConnection %))
+  #(or (instance? StatefulRedisConnection %)
+       (and (instance? IDeref %)
+            (instance? StatefulRedisConnection (deref %)))))
 
 (s/def ::pubsub-connection
-  #(instance? StatefulRedisPubSubConnection %))
+  #(or (instance? StatefulRedisPubSubConnection %)
+       (and (instance? IDeref %)
+            (instance? StatefulRedisPubSubConnection (deref %)))))
+
+(s/def ::redis-uri
+  #(instance? RedisURI %))
 
 (s/def ::resources
   #(instance? ClientResources %))
@@ -53,13 +67,15 @@
 (s/def ::pubsub-listener
   #(instance? RedisPubSubListener %))
 
-(s/def ::redis (s/keys :req [::resources]))
-
 (s/def ::uri ::us/not-empty-string)
 (s/def ::timeout ::dt/duration)
 (s/def ::connect? ::us/boolean)
 (s/def ::io-threads ::us/integer)
 (s/def ::worker-threads ::us/integer)
+
+(s/def ::redis
+  (s/keys :req [::resources ::redis-uri ::timer]
+          :opt [::connection]))
 
 (defmethod ig/pre-init-spec ::redis [_]
   (s/keys :req-un [::uri]
@@ -68,14 +84,14 @@
                    ::io-threads
                    ::worker-threads]))
 
-;; Runtime.getRuntime().availableProcessors()
-
 (defmethod ig/prep-key ::redis
   [_ cfg]
-  (merge {:timeout (dt/duration 5000)
-          :io-threads 4
-          :worker-threads 4}
-         (d/without-nils cfg)))
+  (let [runtime (Runtime/getRuntime)
+        cpus    (.availableProcessors ^Runtime runtime)]
+    (merge {:timeout (dt/duration 5000)
+            :io-threads (max 3 cpus)
+            :worker-threads (max 3 cpus)}
+         (d/without-nils cfg))))
 
 (defmethod ig/init-key ::redis
   [_ {:keys [connect?] :as cfg}]
@@ -84,11 +100,11 @@
       connect? (assoc ::connection (connect cfg)))))
 
 (defmethod ig/halt-key! ::redis
-  [_ {:keys [::resources ::connection]}]
+  [_ {:keys [::resources ::connection ::timer]}]
   (when connection
-    (.close ^java.lang.AutoCloseable connection))
-  (when resources
-    (.shutdown ^ClientResources resources)))
+    (.close ^AutoCloseable connection))
+  (.stop ^Timer timer)
+  (.shutdown ^ClientResources resources))
 
 (def default-codec
   (RedisCodec/of StringCodec/UTF8 ByteArrayCodec/INSTANCE))
@@ -102,13 +118,16 @@
           :worker-threads worker-threads
           :connect? connect?)
 
-  (let [resources (.. (DefaultClientResources/builder)
+  (let [timer     (HashedWheelTimer.)
+        resources (.. (DefaultClientResources/builder)
                       (ioThreadPoolSize ^long io-threads)
                       (computationThreadPoolSize ^long worker-threads)
+                      (timer ^Timer timer)
                       (build))
 
         redis-uri (RedisURI/create ^String uri)]
     (-> cfg
+        (assoc ::timer timer)
         (assoc ::redis-uri redis-uri)
         (assoc ::resources resources))))
 
@@ -133,10 +152,10 @@
     (.setTimeout ^StatefulConnection conn ^Duration timeout)
 
     (reify
-      clojure.lang.IDeref
+      IDeref
       (deref [_] conn)
 
-      java.lang.AutoCloseable
+      AutoCloseable
       (close [_]
         (.close ^StatefulConnection conn)
         (.shutdown ^RedisClient client)))))
@@ -158,7 +177,6 @@
 
   (let [pcomm (.async ^StatefulRedisConnection @conn)]
     (.publish ^RedisAsyncCommands pcomm ^String topic ^bytes message)))
-
 
 (defn subscribe!
   "Blocking operation, intended to be used on a worker/agent thread."
@@ -207,4 +225,6 @@
       (when on-subscribe
         (on-subscribe nil topic count)))))
 
-
+(defn close!
+  [o]
+  (.close ^AutoCloseable o))

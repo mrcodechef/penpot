@@ -372,8 +372,8 @@
                   (assoc :objects objects))))
 
 (defmethod process-change :del-component
-  [data {:keys [id main-instance-x main-instance-y]}]
-  (ctf/delete-component data id main-instance-x main-instance-y))
+  [data {:keys [id]}]
+  (ctf/delete-component data id))
 
 (defmethod process-change :restore-component
   [data {:keys [id]}]

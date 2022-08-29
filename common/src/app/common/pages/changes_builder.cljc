@@ -589,9 +589,7 @@
                 (fn [undo-changes]
                   (-> undo-changes
                       (d/preconj {:type :del-component
-                                  :id id
-                                  :main-instance-x 0   ; not need to calculate instance x because there are no
-                                  :main-instance-y 0}) ; instances now, and the component will be removed by gc
+                                  :id id})
                       (into (comp (map :id)
                                   (map lookupf)
                                   (map mk-change))
@@ -619,15 +617,13 @@
       changes)))
 
 (defn delete-component
-  [changes id main-instance-x main-instance-y]
+  [changes id]
   (assert-library changes)
   (let [library-data   (::library-data (meta changes))
         prev-component (get-in library-data [:components id])]
     (-> changes
         (update :redo-changes conj {:type :del-component
-                                    :id id
-                                    :main-instance-x main-instance-x
-                                    :main-instance-y main-instance-y })
+                                    :id id})
         (update :undo-changes
                 (fn [undo-changes]
                   (-> undo-changes
@@ -648,6 +644,4 @@
       (update :redo-changes conj {:type :restore-component
                                   :id id})
       (update :undo-changes d/preconj {:type :del-component
-                                       :id id
-                                       :main-instance-x 0  ; TODO ojooooooooooooooo
-                                       :main-instance-y 0})))
+                                       :id id})))

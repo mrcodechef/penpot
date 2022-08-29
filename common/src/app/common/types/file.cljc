@@ -121,15 +121,20 @@
 ;; Asset helpers
 
 (defn delete-component
-  "Delete a component and store it to be able to be recovered later."
-  [file-data component-id main-instance-x main-instance-y]
+  "Delete a component and store it to be able to be recovered later.
+
+  Remember also the position of the main instance."
+  [file-data component-id]
   (let [components-v2 (get-in file-data [:options :components-v2])
 
         add-to-deleted-components
         (fn [file-data]
-          (let [component (assoc (ctkl/get-component file-data component-id)
-                                 :main-instance-x main-instance-x
-                                 :main-instance-y main-instance-y)]
+          (let [component     (ctkl/get-component file-data component-id)
+                page          (ctpl/get-page file-data (:main-instance-page component))
+                main-instance (ctn/get-shape page (:main-instance-id component))
+                component     (assoc component
+                                     :main-instance-x (:x main-instance)
+                                     :main-instance-y (:y main-instance))]
             (assoc-in file-data [:deleted-components component-id] component)))]
 
     (cond-> file-data

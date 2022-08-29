@@ -389,20 +389,20 @@
 
 (defn delete-component
   "Delete the component with the given id, from the current file library."
-  [{:keys [id main-instance-x main-instance-y] :as params}]
+  [{:keys [id] :as params}]
   (us/assert ::us/uuid id)
   (ptk/reify ::delete-component
     ptk/WatchEvent
     (watch [it state _]
-      (let [data        (get state :workspace-data)
+      (let [data          (get state :workspace-data)
             changes (-> (pcb/empty-changes it)
                         (pcb/with-library-data data)
-                        (pcb/delete-component id main-instance-x main-instance-y))]
+                        (pcb/delete-component id))]
 
         (rx/of (dch/commit-changes changes))))))
 
 (defn restore-component
-  "Destore a deleted component, with the given id, on the current file library."
+  "Restore a deleted component, with the given id, on the current file library."
   [id]
   (us/assert ::us/uuid id)
   (ptk/reify ::restore-component
@@ -412,6 +412,7 @@
             component     (ctf/get-deleted-component data id)
             page          (ctpl/get-page data (:main-instance-page component))
 
+            ; Make a new main instance, with the same id of the original
             [main-instance shapes]
             (ctn/make-component-instance page
                                          component
@@ -420,7 +421,7 @@
                                                     (:main-instance-y component))
                                          true)
 
-            remap-id (fn [shape id]
+            remap-id (fn [shape]
                        (cond-> shape
                          (= (:id shape) (:id main-instance))
                          (assoc :id (:main-instance-id component))

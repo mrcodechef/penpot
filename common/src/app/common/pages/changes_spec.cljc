@@ -159,11 +159,8 @@
   (s/keys :req-un [::id]
           :opt-un [::name :internal.changes.add-component/shapes]))
 
-(s/def :internal.changes/main-instance-x ::us/safe-number)
-(s/def :internal.changes/main-instance-y ::us/safe-number)
-
 (defmethod change-spec :del-component [_]
-  (s/keys :req-un [::id ::main-instance-x ::main-instance-y]))
+  (s/keys :req-un [::id]))
 
 (defmethod change-spec :restore-component [_]
   (s/keys :req-un [::id]))

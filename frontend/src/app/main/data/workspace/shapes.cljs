@@ -223,7 +223,7 @@
                         (let [shape (get objects id)]
                           (if (and (= (:component-file shape) file-id) ;; Main instances should exist only in local file
                                    (:main-instance? shape))            ;; but check anyway
-                            (conj components [(:component-id shape) (:x shape) (:y shape)])
+                            (conj components (:component-id shape))
                             components)))
                       []
                       (into ids all-children))
@@ -254,8 +254,8 @@
                                                            (->> (map :id starting-flows)
                                                                 (reduce ctp/remove-flow flows))))))
 
-            changes (reduce (fn [changes [component-id x y]]
-                              (pcb/delete-component changes component-id x y))
+            changes (reduce (fn [changes component-id]
+                              (pcb/delete-component changes component-id))
                             changes
                             components-to-delete)]
 

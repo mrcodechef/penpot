@@ -179,6 +179,7 @@
   (let [f     (as-> f $
                 (wrap-dispatch cfg $ mdata)
                 (rlimit/wrap-semaphore cfg $ mdata)
+                (rlimit/wrap-rlimit cfg $ mdata)
                 (retry/wrap-retry cfg $ mdata)
                 (wrap-audit cfg $ mdata)
                 (wrap-metrics cfg $ mdata)

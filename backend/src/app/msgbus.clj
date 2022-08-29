@@ -92,7 +92,7 @@
 (defn- redis-connect
   [{:keys [timeout redis] :as cfg}]
   (let [pconn (redis/connect redis :timeout timeout)
-        sconn (redis/connect redis :pubsub? true :timeout timeout)]
+        sconn (redis/connect redis :type :pubsub :timeout timeout)]
     (-> cfg
         (assoc ::pconn pconn)
         (assoc ::sconn sconn))))

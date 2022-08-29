@@ -13,10 +13,13 @@
    [app.common.spec :as us]
    [app.common.transit :as t]
    [app.config :as cfg]
+   [app.redis.script :as-alias rscript]
    [app.util.async :as aa]
    [app.util.time :as dt]
    [app.worker :as wrk]
+   [clojure.core :as c]
    [clojure.core.async :as a]
+   [clojure.java.io :as io]
    [clojure.spec.alpha :as s]
    [integrant.core :as ig]
    [promesa.core :as p])
@@ -24,9 +27,11 @@
    clojure.lang.IDeref
    io.lettuce.core.RedisClient
    io.lettuce.core.RedisURI
+   io.lettuce.core.ScriptOutputType
    io.lettuce.core.api.StatefulConnection
    io.lettuce.core.api.StatefulRedisConnection
    io.lettuce.core.api.async.RedisAsyncCommands
+   io.lettuce.core.api.async.RedisScriptingAsyncCommands
    io.lettuce.core.codec.ByteArrayCodec
    io.lettuce.core.codec.RedisCodec
    io.lettuce.core.codec.StringCodec
@@ -44,6 +49,7 @@
 
 (declare initialize-resources)
 (declare connect)
+(declare close!)
 
 (s/def ::timer
   #(instance? Timer %))
@@ -103,11 +109,14 @@
   [_ {:keys [::resources ::connection ::timer]}]
   (when connection
     (.close ^AutoCloseable connection))
-  (.stop ^Timer timer)
+  ;; (.stop ^Timer timer)
   (.shutdown ^ClientResources resources))
 
 (def default-codec
   (RedisCodec/of StringCodec/UTF8 ByteArrayCodec/INSTANCE))
+
+(def string-codec
+  (RedisCodec/of StringCodec/UTF8 StringCodec/UTF8))
 
 (defn- initialize-resources
   "Initialize redis connection resources"
@@ -126,28 +135,32 @@
                       (build))
 
         redis-uri (RedisURI/create ^String uri)]
+
     (-> cfg
+        (assoc ::cache (atom {}))
         (assoc ::timer timer)
         (assoc ::redis-uri redis-uri)
         (assoc ::resources resources))))
 
 (defn- shutdown-resources
-  [{:keys [::resources]}]
+  [{:keys [::resources ::cache ::timer]}]
+  (run! close! (vals @cache))
   (when resources
-    (.shutdown ^ClientResources resources)))
+    (.shutdown ^ClientResources resources))
+  (when timer
+    (.stop ^Timer timer)))
 
 (defn connect
   [{:keys [::resources ::redis-uri] :as cfg}
-   & {:keys [timeout codec pubsub?] :or {codec default-codec}}]
+   & {:keys [timeout codec type] :or {codec default-codec type :default}}]
 
   (us/assert! ::resources resources)
 
   (let [client  (RedisClient/create ^ClientResources resources ^RedisURI redis-uri)
         timeout (or timeout (:timeout cfg))
-
-        conn    (if pubsub?
-                  (.connectPubSub ^RedisClient client ^RedisCodec codec)
-                  (.connect ^RedisClient client ^RedisCodec codec))]
+        conn    (case type
+                  :default (.connect ^RedisClient client ^RedisCodec codec)
+                  :pubsub  (.connectPubSub ^RedisClient client ^RedisCodec codec))]
 
     (.setTimeout ^StatefulConnection conn ^Duration timeout)
 
@@ -159,6 +172,15 @@
       (close [_]
         (.close ^StatefulConnection conn)
         (.shutdown ^RedisClient client)))))
+
+(defn get-or-connect
+  [{:keys [::cache] :as state} key options]
+  (or (get @cache key)
+      (-> (swap! cache (fn [cache]
+                         (when-let [prev (get cache key)]
+                           (close! prev))
+                         (assoc cache key (connect state options))))
+          (get key))))
 
 (defn add-listener!
   [conn listener]
@@ -228,3 +250,67 @@
 (defn close!
   [o]
   (.close ^AutoCloseable o))
+
+(def ^:private scripts-cache (atom {}))
+(def noop-fn (constantly nil))
+
+(defn eval!
+  [conn script & {:keys [keys vals max-load-retries]
+                  :or {max-load-retries 10}}]
+
+  ;; (us/assert! (instance? LuaScript script) "`script` should be a instance of LuaScript")
+  (us/assert! ::connection conn)
+
+  (let [cmd   (.async ^StatefulRedisConnection @conn)
+        keys  (into-array String (map str keys))
+        vals  (into-array String (map str vals))
+        sname (::rscript/name script)]
+
+    (letfn [(on-error [cause]
+              (if (instance? io.lettuce.core.RedisNoScriptException cause)
+                (do
+                  (l/error :hint "no script found" :name sname)
+                  (-> (load-script)
+                      (p/then eval-script)))
+                (if-let [on-error (::rscript/on-error script)]
+                  (on-error cause)
+                  (p/rejected cause))))
+
+            (eval-script [sha]
+              (let [start-ts (System/nanoTime)]
+                (-> (.evalsha ^RedisScriptingAsyncCommands cmd
+                              ^String sha
+                              ^ScriScriptOutputType ScriptOutputType/MULTI
+                              ^"[Ljava.lang.String;" keys
+                              ^"[Ljava.lang.String;" vals)
+                    (p/then (fn [result]
+                              (let [elapsed (- (System/nanoTime) start-ts)]
+                                (l/trace :hint "eval script" :name sname :sha sha
+                                         :elapsed (dt/format-duration (dt/duration {:nanos elapsed})))
+
+                                (when-let [on-eval-fn (::rscript/on-eval script)]
+                                  (on-eval-fn result))
+
+                                (let [result-fn (::rscript/result-fn script identity)]
+                                  (result-fn result)))))
+                    (p/catch on-error))))
+
+            (read-script []
+              (-> script ::rscript/path io/resource slurp))
+
+            (load-script []
+              (l/trace :hint "load script" :name sname)
+              (-> (.scriptLoad ^RedisScriptingAsyncCommands cmd
+                               ^String (read-script))
+                  (p/then (fn [sha]
+                            (swap! scripts-cache assoc sname sha)
+                            sha))))]
+
+      (if-let [sha (get @scripts-cache sname)]
+        (eval-script sha)
+        (-> (load-script)
+            (p/then eval-script))))))
+
+
+
+;; (.eval ^RedisScriptingAsyncCommands cmd script ScriptOutputType/MULTI keys vals)))

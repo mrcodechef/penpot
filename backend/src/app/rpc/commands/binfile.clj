@@ -854,7 +854,8 @@
 
 (sv/defmethod ::import-binfile
   "Import a penpot file in a binary format."
-  {::doc/added "1.15"}
+  {::doc/added "1.15"
+   ::rlimit/buckets '(60 10 20)}
   [{:keys [pool] :as cfg} {:keys [profile-id project-id file] :as params}]
   (db/with-atomic [conn pool]
     (projects/check-read-permissions! conn profile-id project-id)

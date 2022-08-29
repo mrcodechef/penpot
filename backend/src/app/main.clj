@@ -224,6 +224,7 @@
     :storage     (ig/ref :app.storage/storage)
     :msgbus      (ig/ref :app.msgbus/msgbus)
     :public-uri  (cf/get :public-uri)
+    :redis       (ig/ref :app.redis/redis)
     :audit       (ig/ref :app.loggers.audit/collector)
     :ldap        (ig/ref :app.auth.ldap/provider)
     :http-client (ig/ref :app.http/client)

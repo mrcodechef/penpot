@@ -38,8 +38,8 @@
 
 (sv/defmethod ::profile
   {:auth false
-   ::rlimit/buckets '(#_(60 120 200)
-                      ( 5   5  10))}
+   ::rlimit/buckets [{:interval "1m" :rate 150 :capacity 1000}
+                     {:interval "5s" :rate 5   :capacity 10}]}
   [{:keys [pool] :as cfg} {:keys [profile-id] :as params}]
   ;; We need to return the anonymous profile object in two cases, when
   ;; no profile-id is in session, and when db call raises not found. In all other

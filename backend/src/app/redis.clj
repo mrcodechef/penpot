@@ -22,6 +22,7 @@
    [clojure.java.io :as io]
    [clojure.spec.alpha :as s]
    [integrant.core :as ig]
+   [cuerdas.core :as str]
    [promesa.core :as p])
   (:import
    clojure.lang.IDeref
@@ -254,22 +255,29 @@
 (def ^:private scripts-cache (atom {}))
 (def noop-fn (constantly nil))
 
+(s/def ::rscript/name qualified-keyword?)
+(s/def ::rscript/path ::us/not-empty-string)
+
+(s/def ::rscript/script
+  (s/keys :req [::rscript/name
+                ::rscript/path]))
+
 (defn eval!
   [conn script & {:keys [keys vals max-load-retries]
                   :or {max-load-retries 10}}]
 
-  ;; (us/assert! (instance? LuaScript script) "`script` should be a instance of LuaScript")
+  (us/assert! ::rscript/script script)
   (us/assert! ::connection conn)
 
   (let [cmd   (.async ^StatefulRedisConnection @conn)
-        keys  (into-array String (map str keys))
-        vals  (into-array String (map str vals))
+        keys' (into-array String (map str keys))
+        vals' (into-array String (map str vals))
         sname (::rscript/name script)]
 
     (letfn [(on-error [cause]
               (if (instance? io.lettuce.core.RedisNoScriptException cause)
                 (do
-                  (l/error :hint "no script found" :name sname)
+                  (l/error :hint "no script found" :name sname :cause cause)
                   (-> (load-script)
                       (p/then eval-script)))
                 (if-let [on-error (::rscript/on-error script)]
@@ -281,18 +289,14 @@
                 (-> (.evalsha ^RedisScriptingAsyncCommands cmd
                               ^String sha
                               ^ScriScriptOutputType ScriptOutputType/MULTI
-                              ^"[Ljava.lang.String;" keys
-                              ^"[Ljava.lang.String;" vals)
+                              ^"[Ljava.lang.String;" keys'
+                              ^"[Ljava.lang.String;" vals')
                     (p/then (fn [result]
                               (let [elapsed (- (System/nanoTime) start-ts)]
                                 (l/trace :hint "eval script" :name sname :sha sha
+                                         :params (str/join "," vals)
                                          :elapsed (dt/format-duration (dt/duration {:nanos elapsed})))
-
-                                (when-let [on-eval-fn (::rscript/on-eval script)]
-                                  (on-eval-fn result))
-
-                                (let [result-fn (::rscript/result-fn script identity)]
-                                  (result-fn result)))))
+                                result)))
                     (p/catch on-error))))
 
             (read-script []

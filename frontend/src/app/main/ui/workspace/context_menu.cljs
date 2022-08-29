@@ -10,6 +10,7 @@
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.pages.helpers :as cph]
+   [app.common.types.components-list :as ctkl]
    [app.common.types.page :as ctp]
    [app.main.data.events :as ev]
    [app.main.data.modal :as modal]
@@ -376,6 +377,14 @@
         current-file-id (mf/use-ctx ctx/current-file-id)
         local-component? (= component-file current-file-id)
 
+        local-library (when local-component?
+                        ;; Not needed to subscribe to changes because it's not expected
+                        ;; to change while context menu is open
+                        (deref refs/workspace-local-library))
+
+        main-component (when local-component?
+                         (ctkl/get-component local-library (:component-id (first shapes))))
+
         do-add-component #(st/emit! (dwl/add-component))
         do-detach-component #(st/emit! (dwl/detach-component shape-id))
         do-detach-component-in-bulk #(st/emit! dwl/detach-selected-components)
@@ -384,6 +393,7 @@
         do-navigate-component-file #(st/emit! (dwl/nav-to-component-file component-file))
         do-update-component #(st/emit! (dwl/update-component-sync shape-id component-file))
         do-update-component-in-bulk #(st/emit! (dwl/update-component-in-bulk component-shapes component-file))
+        do-restore-component #(st/emit! (dwl/restore-component component-id))
 
         do-update-remote-component
         #(st/emit! (modal/show
@@ -436,11 +446,14 @@
 
 
         (if local-component?
-          [:*
-           [:& menu-entry {:title (tr "workspace.shape.menu.update-main")
-                           :on-click do-update-component}]
-           [:& menu-entry {:title (tr "workspace.shape.menu.show-main")
-                           :on-click do-show-component}]]
+          (if (nil? main-component)
+            [:& menu-entry {:title (tr "workspace.shape.menu.restore-main")
+                            :on-click do-restore-component}]
+            [:*
+             [:& menu-entry {:title (tr "workspace.shape.menu.update-main")
+                             :on-click do-update-component}]
+             [:& menu-entry {:title (tr "workspace.shape.menu.show-main")
+                             :on-click do-show-component}]])
 
           [:*
            [:& menu-entry {:title (tr "workspace.shape.menu.go-main")

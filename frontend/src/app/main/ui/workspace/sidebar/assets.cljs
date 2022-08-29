@@ -584,7 +584,7 @@
            (if (or multi-components? multi-assets?)
              (on-assets-delete)
              (st/emit! (dwu/start-undo-transaction)
-                       (dwl/delete-component {:id (:component-id @state)})
+                       (dwl/delete-component {:id (:component-id @state) :main-instance-x 0 :main-instance-y 0})
                        (dwl/sync-file file-id file-id :components (:component-id @state))
                        (dwu/commit-undo-transaction)))))
 
@@ -2025,7 +2025,7 @@
          (mf/deps selected-assets)
          (fn []
            (st/emit! (dwu/start-undo-transaction))
-           (apply st/emit! (map #(dwl/delete-component {:id %})
+           (apply st/emit! (map #(dwl/delete-component {:id % :main-instance-x 0 :main-instance-y 0})
                                 (:components selected-assets)))
            (apply st/emit! (map #(dwl/delete-media {:id %})
                                 (:graphics selected-assets)))

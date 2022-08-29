@@ -120,6 +120,45 @@
 
 ;; Asset helpers
 
+(defn delete-component
+  "Delete a component and store it to be able to be recovered later."
+  [file-data component-id main-instance-x main-instance-y]
+  (let [components-v2 (get-in file-data [:options :components-v2])
+
+        add-to-deleted-components
+        (fn [file-data]
+          (let [component (assoc (ctkl/get-component file-data component-id)
+                                 :main-instance-x main-instance-x
+                                 :main-instance-y main-instance-y)]
+            (assoc-in file-data [:deleted-components component-id] component)))]
+
+    (cond-> file-data
+      :components-v2
+      (add-to-deleted-components)
+
+      :always
+      (ctkl/remove-component component-id))))
+
+(defn get-deleted-component
+  "Retrieve a component that has been deleted but still is in the safe store."
+  [file-data component-id]
+  (get-in file-data [:deleted-components component-id]))
+
+(defn restore-component
+  "Recover a deleted component and put it again in place."
+  [file-data component-id]
+  (let [component (-> (get-in file-data [:deleted-components component-id])
+                      (dissoc :main-instance-x :main-instance-y))]
+    (cond-> file-data
+      (some? component)
+      (-> (assoc-in [:components component-id] component)
+          (d/dissoc-in [:deleted-components component-id])))))
+
+(defn purge-component
+  "Remove permanently a component."
+  [file-data component-id]
+  (d/dissoc-in file-data [:deleted-components component-id]))
+
 (defmulti uses-asset?
   "Checks if a shape uses the given asset."
   (fn [asset-type _ _ _] asset-type))
@@ -185,7 +224,7 @@
 
 (defn migrate-to-components-v2
   "If there is any component in the file library, add a new 'Library backup' and generate
-  main instances for all components there. Mark the file with the :comonents-v2 option."
+  main instances for all components there. Mark the file with the :components-v2 option."
   [file-data]
   (let [components (ctkl/components-seq file-data)]
     (if (or (empty? components)

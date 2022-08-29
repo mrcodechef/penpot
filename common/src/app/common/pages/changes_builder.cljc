@@ -589,7 +589,9 @@
                 (fn [undo-changes]
                   (-> undo-changes
                       (d/preconj {:type :del-component
-                                  :id id})
+                                  :id id
+                                  :main-instance-x 0   ; not need to calculate instance x because there are no
+                                  :main-instance-y 0}) ; instances now, and the component will be removed by gc
                       (into (comp (map :id)
                                   (map lookupf)
                                   (map mk-change))
@@ -617,18 +619,35 @@
       changes)))
 
 (defn delete-component
-  [changes id]
+  [changes id main-instance-x main-instance-y]
   (assert-library changes)
   (let [library-data   (::library-data (meta changes))
         prev-component (get-in library-data [:components id])]
     (-> changes
         (update :redo-changes conj {:type :del-component
-                                    :id id})
-        (update :undo-changes d/preconj {:type :add-component
-                                         :id id
-                                         :name (:name prev-component)
-                                         :path (:path prev-component)
-                                         :main-instance-id (:main-instance-id prev-component)
-                                         :main-instance-page (:main-instance-page prev-component)
-                                         :shapes (vals (:objects prev-component))}))))
+                                    :id id
+                                    :main-instance-x main-instance-x
+                                    :main-instance-y main-instance-y })
+        (update :undo-changes
+                (fn [undo-changes]
+                  (-> undo-changes
+                      (d/preconj {:type :purge-component
+                                  :id id})
+                      (d/preconj {:type :add-component
+                                  :id id
+                                  :name (:name prev-component)
+                                  :path (:path prev-component)
+                                  :main-instance-id (:main-instance-id prev-component)
+                                  :main-instance-page (:main-instance-page prev-component)
+                                  :shapes (vals (:objects prev-component))})))))))
 
+(defn restore-component
+  [changes id]
+  (assert-library changes)
+  (-> changes
+      (update :redo-changes conj {:type :restore-component
+                                  :id id})
+      (update :undo-changes d/preconj {:type :del-component
+                                       :id id
+                                       :main-instance-x 0  ; TODO ojooooooooooooooo
+                                       :main-instance-y 0})))

@@ -19,6 +19,7 @@
    [app.common.types.components-list :as ctkl]
    [app.common.types.container :as ctn]
    [app.common.types.colors-list :as ctcl]
+   [app.common.types.file :as ctf]
    [app.common.types.page :as ctp]
    [app.common.types.pages-list :as ctpl]
    [app.common.types.shape :as cts]
@@ -371,8 +372,16 @@
                   (assoc :objects objects))))
 
 (defmethod process-change :del-component
+  [data {:keys [id main-instance-x main-instance-y]}]
+  (ctf/delete-component data id main-instance-x main-instance-y))
+
+(defmethod process-change :restore-component
   [data {:keys [id]}]
-  (d/dissoc-in data [:components id]))
+  (ctf/restore-component data id))
+
+(defmethod process-change :purge-component
+  [data {:keys [id]}]
+  (ctf/purge-component data id))
 
 ;; -- Typography
 

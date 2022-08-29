@@ -18,6 +18,7 @@
    [app.common.types.color :as ctc]
    [app.common.types.container :as ctn]
    [app.common.types.file :as ctf]
+   [app.common.types.pages-list :as ctpl]
    [app.common.types.shape-tree :as ctst]
    [app.common.types.typography :as ctt]
    [app.common.uuid :as uuid]
@@ -388,7 +389,7 @@
 
 (defn delete-component
   "Delete the component with the given id, from the current file library."
-  [{:keys [id] :as params}]
+  [{:keys [id main-instance-x main-instance-y] :as params}]
   (us/assert ::us/uuid id)
   (ptk/reify ::delete-component
     ptk/WatchEvent
@@ -396,9 +397,50 @@
       (let [data        (get state :workspace-data)
             changes (-> (pcb/empty-changes it)
                         (pcb/with-library-data data)
-                        (pcb/delete-component id))]
+                        (pcb/delete-component id main-instance-x main-instance-y))]
 
         (rx/of (dch/commit-changes changes))))))
+
+(defn restore-component
+  "Destore a deleted component, with the given id, on the current file library."
+  [id]
+  (us/assert ::us/uuid id)
+  (ptk/reify ::restore-component
+    ptk/WatchEvent
+    (watch [it state _]
+      (let [data          (get state :workspace-data)
+            component     (ctf/get-deleted-component data id)
+            page          (ctpl/get-page data (:main-instance-page component))
+
+            [main-instance shapes]
+            (ctn/make-component-instance page
+                                         component
+                                         (:id data)
+                                         (gpt/point (:main-instance-x component)
+                                                    (:main-instance-y component))
+                                         true)
+
+            remap-id (fn [shape id]
+                       (cond-> shape
+                         (= (:id shape) (:id main-instance))
+                         (assoc :id (:main-instance-id component))
+
+                         (= (:parent-id shape) (:id main-instance))
+                         (assoc :parent-id (:main-instance-id component))))
+
+            shapes (map remap-id shapes)
+
+            changes (-> (pcb/empty-changes it)
+                        (pcb/with-library-data data)
+                        (pcb/with-page page)
+                        (pcb/restore-component id))
+
+            changes (reduce #(pcb/add-object %1 %2 {:ignore-touched true})
+                            changes
+                            shapes)]
+
+        (rx/of (dch/commit-changes changes))))))
+
 
 (defn instantiate-component
   "Create a new shape in the current page, from the component with the given id

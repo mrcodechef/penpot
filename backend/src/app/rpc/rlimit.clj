@@ -11,57 +11,20 @@
    [app.common.logging :as l]
    [app.metrics :as mtx]
    [app.util.services :as sv]
+   [app.rpc.rlimit.semaphore :as sem]
    [promesa.core :as p]))
 
-(defprotocol IAsyncSemaphore
-  (acquire! [_])
-  (release! [_]))
-
-(defn semaphore
-  [{:keys [permits metrics name]}]
-  (let [name   (d/name name)
-        used   (volatile! 0)
-        queue  (volatile! (d/queue))
-        labels (into-array String [name])]
-    (reify IAsyncSemaphore
-      (acquire! [this]
-        (let [d (p/deferred)]
-          (locking this
-            (if (< @used permits)
-              (do
-                (vswap! used inc)
-                (p/resolve! d))
-              (vswap! queue conj d)))
-
-          (mtx/run! metrics {:id :rlimit-used-permits :val @used :labels labels })
-          (mtx/run! metrics {:id :rlimit-queued-submissions :val (count @queue) :labels labels})
-          (mtx/run! metrics {:id :rlimit-acquires-total :inc 1 :labels labels})
-          d))
-
-      (release! [this]
-        (locking this
-          (if-let [item (peek @queue)]
-            (do
-              (vswap! queue pop)
-              (p/resolve! item))
-            (when (pos? @used)
-              (vswap! used dec))))
-
-        (mtx/run! metrics {:id :rlimit-used-permits :val @used :labels labels})
-        (mtx/run! metrics {:id :rlimit-queued-submissions :val (count @queue) :labels labels})
-        ))))
-
-(defn wrap-rlimit
+(defn wrap-semaphore
   [{:keys [metrics executors] :as cfg} f mdata]
   (if-let [permits (::permits mdata)]
-    (let [sem (semaphore {:permits permits
+    (let [sem (sem/create :permits permits
                           :metrics metrics
-                          :name (::sv/name mdata)})]
+                          :name (::sv/name mdata))]
       (l/debug :hint "wrapping rlimit" :handler (::sv/name mdata) :permits permits)
       (fn [cfg params]
-        (-> (acquire! sem)
+        (-> (sem/acquire! sem)
             (p/then (fn [_] (f cfg params)) (:default executors))
-            (p/finally (fn [_ _] (release! sem))))))
+            (p/finally (fn [_ _] (sem/release! sem))))))
     f))
 
 

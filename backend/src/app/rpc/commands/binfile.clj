@@ -19,6 +19,7 @@
    [app.rpc.doc :as-alias doc]
    [app.rpc.queries.files :as files]
    [app.rpc.queries.projects :as projects]
+   [app.rpc.rlimit :as-alias rlimit]
    [app.storage :as sto]
    [app.storage.tmp :as tmp]
    [app.tasks.file-gc]
